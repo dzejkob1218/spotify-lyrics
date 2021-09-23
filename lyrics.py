@@ -1,35 +1,64 @@
+from helpers import *
 import lyricsgenius
-import spotipy
+from spotipy import Spotify, SpotifyOAuth, util, CacheFileHandler
 import requests
 from fuzzywuzzy import fuzz
 import sqlite3 as sql
 import re
 from dotenv import load_dotenv
 import os
+from sys import platform
 
 load_dotenv()
 
+genius = lyricsgenius.Genius(os.environ.get("GENIUS_SECRET"))
 
-# TODO - find a way for users to add their own credentials
-username = os.environ.get("")
-TOKEN = spotipy.Spotify(
-        auth=spotipy.util.prompt_for_user_token(username, 'user-read-playback-state',
-                                                client_id=os.environ.get("spotify_client_id"),
-                                                client_secret=os.environ.get("spotify_client_secret"),
-                                                redirect_uri='http://localhost:8080'))
-genius = lyricsgenius.Genius(os.environ.get("genius-secret"))
+cache_handler = CacheFileHandler(cache_path="")
+auth_manager = SpotifyOAuth(scope='user-read-playback-state', cache_handler=cache_handler)
+spotify = Spotify(auth_manager=auth_manager)
 
 
-def get_lyrics():
+def get_features(song):
+    """Fetches audio features from Spotify Api"""
+    return spotify.audio_features(song['uri'])[0]
+
+
+def get_playback():
+    """Returns currently playing song from Spotify api and True if connection to Spotify API worked"""
+    # Query spotify API
+    api_playback = spotify.current_playback()
+    if api_playback:
+        return api_playback['item'], True
+
+    # Try checking name of spotify window on system
+    local_playback = get_local_playback()
+    if local_playback:
+        return local_playback, False
+    return None, False
+
+
+def get_local_playback():
+    """ Attempts to get the name and artist of song by checking main spotify window """
+    if platform == "linux" or platform == "linux2":
+        # linux
+        pass
+    elif platform == "darwin":
+        # OS X
+        pass
+    elif platform == "win32":
+        # windows
+        pass
+    return None
+
+def get_lyrics(song):
     """Look for the lyrics either in the database or on genius.com"""
 
-    spotify = spotipy.Spotify(TOKEN)
-    song = spotify.current_playback()['item']  # this shouldn't be here
-    uri = song['uri']
-    features = spotify.audio_features(uri)
-    download_cover(song)
+    if not song:
+        print("no playback")
+        return "Nothing is playing"
 
-    db_result = search_database(uri)
+    verify_database()
+    db_result = search_database(song['uri'])
     if db_result:
         print("Getting lyrics from database")
         return db_result
@@ -37,11 +66,10 @@ def get_lyrics():
     genius_result = search_genius(song)
     if genius_result:
         print("Lyrics found on Genius - adding to database")
-        addLyrics(uri, genius_result)
+        addLyrics(song['uri'], song['name'], parse_artists(song['artists']), genius_result)
         return genius_result
 
-    print("Lyrics not found")
-    return None
+    return "Lyrics not found"
 
 
 def download_cover(song):
@@ -52,23 +80,31 @@ def download_cover(song):
         handler.write(img)
 
 
-def addLyrics(uri, lyrics):
+def addLyrics(uri, name, artists, lyrics):
     """Adds new lyrics to the database along with the song uri"""
     connection = sql.connect("lyrics.db")
     crs = connection.cursor()
-    comd = "INSERT INTO lyrics (id, lyrics) VALUES (?,?)"
-    crs.execute(comd, (uri, lyrics))
+    comd = "INSERT INTO lyrics (id, name, artists, lyrics) VALUES (?, ?, ?, ?)"
+    crs.execute(comd, (uri, name, artists, lyrics))
     connection.commit()
     connection.close()
     return
+
+
+def verify_database():
+    """Creates the lyrics database if it doesn't exist"""
+    connection = sql.connect("lyrics.db")
+    crs = connection.cursor()
+    crs.execute(
+        "CREATE TABLE IF NOT EXISTS 'lyrics' (id text PRIMARY KEY, name text NOT NULL, artists text, lyrics text);")
 
 
 def search_database(uri):
     """Return lyrics for a song from the database"""
     connection = sql.connect("lyrics.db")
     crs = connection.cursor()
-    cmd = f"SELECT lyrics FROM lyrics WHERE uri = ?"
-    crs.execute(cmd, uri)
+    cmd = f"SELECT lyrics FROM lyrics WHERE id = ?"
+    crs.execute(cmd, (uri,))
     result = crs.fetchall()
     crs.close()
     return result[0][0] if result else None
@@ -92,45 +128,18 @@ def search_genius(song):
 
     # Check if any of the listed artists and the song title more or less match the result.
     artist_match = any([(fuzz.ratio((page.artist).lower(), (artist['name']).lower()) > 70) for artist in artists])
-    title_match = fuzz.partial_ratio((page.title).lower(),(name).lower()) > 70
+    title_match = fuzz.partial_ratio((page.title).lower(), (name).lower()) > 70
 
     # In case the result seems off, ask the user.
     if not title_match or not artist_match:
         #  TODO: make this a popup window
-        print(f"Looked for lyrics for {name} by {artists[0]['name']}, but found only {page.title} by {page.artist}, use the lyric?")
+        """
+        print(
+            f"Looked for lyrics for {name} by {artists[0]['name']}, but found only {page.title} by {page.artist}, use the lyric?")
         if input() not in ['y', 'yes', 'ye', 'yup']:
             return None
-    return page.lyrics
+        """
+        return None
+    return remove_embed(page.lyrics)
 
-
-def uniform_title(title):
-    """Does the best it can to get the actual song title from whatever the name of the track is
-
-    Track names on Spotify are riddled with information on remixes, remasters, features, live versions etc.
-    This function tries to remove these, but it might not work in every case, especially in languages other
-    than English since it works by looking for keywords
-    """
-    keywords = ['remaster', 'delux', 'from', 'mix', 'version', 'edit', 'live', 'track', 'session', 'extend', 'feat', 'studio']
-    if not any(keyword in title.lower() for keyword in keywords):
-        return title
-
-    newtitle = title
-    #  uses split to remove - everything after hyphen if there's a keyword there
-    #  (doesn't separate ones without spaces since some titles are like-this)
-    if ' - ' in newtitle:
-        newtitle = newtitle.split(" - ", 1)
-        if any(keyword in newtitle[1].lower() for keyword in keywords):
-            newtitle = newtitle[0]
-
-    # removes everything in parentheses if there's a keyword inside
-    if '(' in newtitle:
-        regex = re.compile(".*?\((.*?)\)")
-        result = re.findall(regex, title)
-        if len(result) > 0:
-            if any(keyword in result[0].lower() for keyword in keywords):
-                tag = '(' + result[0] + ')'
-                newtitle = newtitle.replace(tag, '')
-
-    newtitle = newtitle.strip()
-    return newtitle
 
