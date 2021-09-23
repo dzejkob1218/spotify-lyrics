@@ -27,28 +27,11 @@ def get_playback():
     """Returns currently playing song from Spotify api and True if connection to Spotify API worked"""
     # Query spotify API
     api_playback = spotify.current_playback()
-    if api_playback:
-        return api_playback['item'], True
+    try:
+        return api_playback['item']
+    except:
+        return None
 
-    # Try checking name of spotify window on system
-    local_playback = get_local_playback()
-    if local_playback:
-        return local_playback, False
-    return None, False
-
-
-def get_local_playback():
-    """ Attempts to get the name and artist of song by checking main spotify window """
-    if platform == "linux" or platform == "linux2":
-        # linux
-        pass
-    elif platform == "darwin":
-        # OS X
-        pass
-    elif platform == "win32":
-        # windows
-        pass
-    return None
 
 def get_lyrics(song):
     """Look for the lyrics either in the database or on genius.com"""

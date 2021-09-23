@@ -1,7 +1,8 @@
 from PyQt6.QtWidgets import QMainWindow
 from threading import Timer
 from helpers import *
-from PyQt6 import QtCore, QtGui, QtWidgets
+from PyQt6 import QtCore, QtGui, QtWidgets, Qt
+
 import spotipy
 import sys
 import lyrics
@@ -40,12 +41,9 @@ class UiMainWindow(QMainWindow):
         # self.win = main_window
         self.setWindowTitle("Spotify Lyrics")
         self.setWindowFlags(QtCore.Qt.WindowType.WindowStaysOnTopHint)  # Stay on top by default
-        self.setStyleSheet("background-color: rgb(0, 0, 0); color: white;")
+        self.setStyleSheet("""background-color: rgb(0, 0, 0); color: white;""")
         self.setFixedSize(860, 680)
         self.statusBar().hide()
-
-        # Central widget
-        # self.centralwidget = QtWidgets.QWidget(self)
 
         # Cover image
         self.cover = self.element_cover_image(self)
@@ -71,7 +69,6 @@ class UiMainWindow(QMainWindow):
         # Composition tab
         self.jam, self.jam_labels, self.jam_values = self.element_labels(self, "Composition", attributes=JAM_LABELS,
                                                                          position=180)
-
         self.update_lyrics()
 
     def set_font(self, size=11, weight=50):
@@ -89,20 +86,21 @@ class UiMainWindow(QMainWindow):
         scroll_area_content = QtWidgets.QWidget()
         scroll_area_content.setGeometry(QtCore.QRect(0, 0, 459, 599))
         vertical_layout = QtWidgets.QVBoxLayout(scroll_area_content)
-        lyrics = self.element_lyrics(scroll_area_content)
-        vertical_layout.addWidget(lyrics)
+        lyrics_text = self.element_lyrics(scroll_area_content)
+        lyrics_text.setAlignment(QtCore.Qt.AlignmentFlag.AlignTop)
+        vertical_layout.addWidget(lyrics_text)
         scroll_area.setWidget(scroll_area_content)
-        return lyrics
+        return lyrics_text
 
     def element_lyrics(self, parent):
-        lyrics = QtWidgets.QLabel(parent)
+        lyrics_text = QtWidgets.QLabel(parent)
         font = QtGui.QFont()
-        lyrics.setFont(self.set_font())
-        return lyrics
+        lyrics_text.setFont(self.set_font())
+        return lyrics_text
 
     def element_update_button(self, parent):
         button = QtWidgets.QPushButton(parent)
-        button.setGeometry(QtCore.QRect(710, 45, 100, 24))
+        button.setGeometry(QtCore.QRect(750, 45, 100, 24))
         button.clicked.connect(
             lambda: self.update_lyrics(force_update=True))  # call the update function when button is clicked
         button.setFont(self.set_font(11))
@@ -119,8 +117,10 @@ class UiMainWindow(QMainWindow):
     def element_labels(self, parent, name="Info", attributes=INFO_LABELS, position=10):
         # Info window
         element = QtWidgets.QTabWidget(parent)
+        element.setStyleSheet("color: grey;")
         element.setGeometry(QtCore.QRect(position, 350, 165, 181))
         tab = QtWidgets.QWidget()
+        tab.setStyleSheet("color: white;")
         labels, values = {}, {}
         offset = 0
         for attribute in attributes:
@@ -149,23 +149,20 @@ class UiMainWindow(QMainWindow):
         Automatically checks every given interval if the song has changed.
         Parameter 'force_update' overrides that check and is by the 'update' button.
         """
-
-        song, is_api_connected = lyrics.get_playback()
-
+        # TODO: When updating after there was no playback the app crashes
+        song = lyrics.get_playback()
         # Pressing the 'update' button always reloads a song, even if it's loaded already
         if not force_update:
             # Update lyrics every interval specified as UPDATE_TIME
             Timer(UPDATE_TIME, self.update_lyrics).start()
             # Check if the currently playing song is already loaded
-            if song == self.currently_loaded:
+            if song and song == self.currently_loaded:
                 return None
 
         # If the song has changed, remember it
         print("Update Called")
         self.currently_loaded = song
-
-        # Load track features and track image from Spotify API
-        if song and is_api_connected:
+        if song:
             lyrics.download_cover(song)
             features = lyrics.get_features(song)
             lyrics_text = lyrics.get_lyrics(song)
@@ -175,14 +172,9 @@ class UiMainWindow(QMainWindow):
             self.set_song(song, lyrics_text)  # Change text
             self.set_labels(features)
 
-        # If the API isn't working, show just the title, artist and lyrics
-        elif song and not is_api_connected:
-            lyrics_text = lyrics.get_lyrics(song)
-            self.toggle_details(False)
-            self.set_song(song, lyrics_text)
-
         # If no song was found, hide everything
         else:
+            print("No song")
             self.toggle_details(False)
             self.title.setText('')  # change title and artist
             self.artist.setText('')
@@ -211,6 +203,11 @@ class UiMainWindow(QMainWindow):
 
     def toggle_details(self, toggle):
         """ Hides or shows all elements that need Spotify API to load """
-        self.info.setEnabled(toggle)
-        self.jam.setEnabled(toggle)
-        self.cover.setEnabled(toggle)
+        if toggle:
+            self.info.show()
+            self.jam.show()
+            self.cover.show()
+        else:
+            self.info.hide()
+            self.jam.hide()
+            self.cover.hide()

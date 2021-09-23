@@ -9,7 +9,7 @@ def main():
     app = QtWidgets.QApplication([])
     ui = UiMainWindow()
     ui.show()
-    app.exec()  # TODO: change lyrics automatically
+    app.exec()
 
 
 if __name__ == "__main__" :
