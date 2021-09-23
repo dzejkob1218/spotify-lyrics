@@ -1,14 +1,16 @@
 import spotipy
-from PyQt5 import QtCore, QtGui, QtWidgets
-from interface import Ui_MainWindow
+from PyQt6 import QtCore, QtGui, QtWidgets
+from interface import UiMainWindow
 import os
+from lyrics import get_lyrics
 
 
 def main():
     app = QtWidgets.QApplication([])
-    win = QtWidgets.QMainWindow()
-    win.setWindowTitle("Spotify Lyrics")
-    ui = Ui_MainWindow()
-    ui.render(win)
-    win.show()
+    ui = UiMainWindow()
+    ui.show()
     app.exec()  # TODO: change lyrics automatically
+
+
+if __name__ == "__main__" :
+    main()

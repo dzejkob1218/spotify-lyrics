@@ -1,228 +1,216 @@
-from PyQt5 import QtCore, QtGui, QtWidgets
+from PyQt6.QtWidgets import QMainWindow
+from threading import Timer
+from helpers import *
+from PyQt6 import QtCore, QtGui, QtWidgets
 import spotipy
 import sys
-import lyrics as info
+import lyrics
 import lyricsgenius
 import random
 import time
 
-
 sp = None
-img_dir = 'cover.jpg' # gets the directory of the cover
+UPDATE_TIME = 5
+IMG_DIR = 'cover.jpg'  # gets the directory of the cover
+INFO_LABELS = {
+    'energy': 'Energy',
+    'valence': 'Valence',
+    'danceability': 'Dance',
+    'speechiness': 'Speech',
+    'acousticness': 'Acoustic',
+    'instrumentalness': 'Instrumental',
+    'liveness': 'Live'
+}
+
+JAM_LABELS = {
+    'key': 'Key',
+    'signature': 'Signature',
+    'tempo': 'Tempo'
+}
 
 
-class Ui_MainWindow(object):
-    def render(self, MainWindow): # TODO: Why can't this be init?
-        self.win = MainWindow
-        MainWindow.setWindowFlags(QtCore.Qt.WindowStaysOnTopHint)
-        MainWindow.setObjectName("MainWindow")
-        MainWindow.resize(820, 680)
-        MainWindow.setStyleSheet("background-color: rgb(0, 0, 0);\n", "color: white;")
-        self.centralwidget = QtWidgets.QWidget(MainWindow)
-        self.centralwidget.setObjectName("centralwidget")
-        self.cover = QtWidgets.QLabel(self.centralwidget)
-        self.cover.setGeometry(QtCore.QRect(10, 10, 331, 331))
-        self.cover.setText("")
-        self.cover.setPixmap(QtGui.QPixmap("../../cover.jpg"))
-        self.cover.setScaledContents(True)
-        self.cover.setObjectName("cover")
-        self.title = QtWidgets.QLabel(self.centralwidget)
-        self.title.setGeometry(QtCore.QRect(350, 0, 441, 41))
-        font = QtGui.QFont()
-        font.setFamily("Segoe WP")
-        font.setPointSize(18)
-        font.setBold(True)
-        font.setWeight(75)
-        self.title.setFont(font)
-        self.title.setObjectName("title")
-        self.artist = QtWidgets.QLabel(self.centralwidget)
-        self.artist.setGeometry(QtCore.QRect(350, 37, 441, 31))
-        font = QtGui.QFont()
-        font.setFamily("Segoe WP")
-        font.setPointSize(14)
-        font.setBold(True)
-        font.setWeight(75)
-        self.artist.setFont(font)
-        self.artist.setObjectName("artist")
+class UiMainWindow(QMainWindow):
+    def __init__(self):
+        super().__init__()
+
+        # Remembers a song after loading to prevent searching for the same lyrics many times
+        self.currently_loaded = None
+
+        # Initialize main window
+        # self.win = main_window
+        self.setWindowTitle("Spotify Lyrics")
+        self.setWindowFlags(QtCore.Qt.WindowType.WindowStaysOnTopHint)  # Stay on top by default
+        self.setStyleSheet("background-color: rgb(0, 0, 0); color: white;")
+        self.setFixedSize(860, 680)
+        self.statusBar().hide()
+
+        # Central widget
+        # self.centralwidget = QtWidgets.QWidget(self)
+
+        # Cover image
+        self.cover = self.element_cover_image(self)
+
+        # Song title
+        self.title = QtWidgets.QLabel(self)
+        self.title.setGeometry(QtCore.QRect(350, 5, 441, 41))
+        self.title.setFont(self.set_font(18, 75))
+
+        # Song artists
+        self.artist = QtWidgets.QLabel(self)
+        self.artist.setGeometry(QtCore.QRect(350, 42, 441, 31))
+        self.artist.setFont(self.set_font(14, 75))
 
         # lyrics space
-        self.scrollArea = QtWidgets.QScrollArea(self.centralwidget)
-        self.scrollArea.setGeometry(QtCore.QRect(350, 70, 461, 561))
+        self.lyrics = self.element_lyrics_area(self)
 
-        self.scrollArea.setWidgetResizable(True)
-        self.scrollArea.setObjectName("scrollArea")
+        # Update button
+        self.element_update_button(self)
 
-        self.scrollAreaWidgetContents = QtWidgets.QWidget()
-        self.scrollAreaWidgetContents.setGeometry(QtCore.QRect(0, 0, 459, 559))
-        self.scrollAreaWidgetContents.setObjectName("scrollAreaWidgetContents")
+        # Info tab
+        self.info, self.labels, self.values = self.element_labels(self, "Info", attributes=INFO_LABELS, position=10)
+        # Composition tab
+        self.jam, self.jam_labels, self.jam_values = self.element_labels(self, "Composition", attributes=JAM_LABELS,
+                                                                         position=180)
 
-        self.verticalLayout = QtWidgets.QVBoxLayout(self.scrollAreaWidgetContents)
-        self.verticalLayout.setObjectName("verticalLayout")
+        self.update_lyrics()
 
-        # lyrics
-        self.lyrics = QtWidgets.QLabel(self.scrollAreaWidgetContents)
+    def set_font(self, size=11, weight=50):
+        """ Returns bold font to use in some of the elements """
         font = QtGui.QFont()
-        font.setPointSize(11)
-        self.lyrics.setFont(font)
-        self.lyrics.setObjectName("lyrics")
-        self.lyrics.setAlignment(QtCore.Qt.AlignTop)  # aligns the lyrics to the top
-        self.verticalLayout.addWidget(self.lyrics)
-        self.scrollArea.setWidget(self.scrollAreaWidgetContents)
+        font.setFamily("Segoe WP")
+        font.setPointSize(size)
+        font.setWeight(weight)
+        return font
 
-        # karaoke button
-        self.mode = False
-        self.karaoke = QtWidgets.QPushButton(self.centralwidget)
-        self.karaoke.setGeometry(QtCore.QRect(735, 30, 75, 20))
-        self.karaoke.clicked.connect(self.karaoke_mode) # call the update function when button is clicked
-        font = QtGui.QFont()
-        font.setPointSize(10)
-        font.setBold(True)
-        font.setWeight(75)
-        self.karaoke.setFont(font)
-        self.karaoke.setStyleSheet("background-color: rgb(127, 127, 127);")
-        self.karaoke.setObjectName("karaoke")
+    def element_lyrics_area(self, parent):
+        scroll_area = QtWidgets.QScrollArea(parent)
+        scroll_area.setGeometry(QtCore.QRect(350, 75, 500, 599))
+        scroll_area.setWidgetResizable(True)
+        scroll_area_content = QtWidgets.QWidget()
+        scroll_area_content.setGeometry(QtCore.QRect(0, 0, 459, 599))
+        vertical_layout = QtWidgets.QVBoxLayout(scroll_area_content)
+        lyrics = self.element_lyrics(scroll_area_content)
+        vertical_layout.addWidget(lyrics)
+        scroll_area.setWidget(scroll_area_content)
+        return lyrics
 
+    def element_lyrics(self, parent):
+        lyrics = QtWidgets.QLabel(parent)
+        font = QtGui.QFont()
+        lyrics.setFont(self.set_font())
+        return lyrics
 
-        # update button
-        self.update = QtWidgets.QPushButton(self.centralwidget)
-        self.update.setGeometry(QtCore.QRect(735, 0, 75, 20))
-        self.update.clicked.connect(self.updateLyrics) # call the update function when button is clicked
-        font = QtGui.QFont()
-        font.setPointSize(10)
-        font.setBold(True)
-        font.setWeight(75)
-        self.update.setFont(font)
-        self.update.setStyleSheet("background-color: rgb(127, 127, 127);")
-        self.update.setObjectName("update")
+    def element_update_button(self, parent):
+        button = QtWidgets.QPushButton(parent)
+        button.setGeometry(QtCore.QRect(710, 45, 100, 24))
+        button.clicked.connect(
+            lambda: self.update_lyrics(force_update=True))  # call the update function when button is clicked
+        button.setFont(self.set_font(11))
+        button.setStyleSheet("background-color: rgb(127, 127, 127);")
+        button.setText("Update")
+        return button
 
-        ####
-        self.info = QtWidgets.QTabWidget(self.centralwidget)
-        self.info.setGeometry(QtCore.QRect(10, 350, 330, 281))
-        self.info.setObjectName("info")
-        self.stats = QtWidgets.QWidget()
-        self.stats.setObjectName("stats")
-        self.dance_label = QtWidgets.QLabel(self.stats)
-        self.dance_label.setGeometry(QtCore.QRect(10, 50, 71, 21))
-        font = QtGui.QFont()
-        font.setPointSize(11)
-        font.setBold(True)
-        font.setWeight(75)
-        self.dance_label.setFont(font)
-        self.dance_label.setObjectName("dance_label")
-        self.valence_label = QtWidgets.QLabel(self.stats)
-        self.valence_label.setGeometry(QtCore.QRect(10, 30, 71, 21))
-        font = QtGui.QFont()
-        font.setPointSize(11)
-        font.setBold(True)
-        font.setWeight(75)
-        self.valence_label.setFont(font)
-        self.valence_label.setObjectName("valence_label")
-        self.energy_label = QtWidgets.QLabel(self.stats)
-        self.energy_label.setGeometry(QtCore.QRect(10, 10, 71, 21))
-        font = QtGui.QFont()
-        font.setPointSize(11)
-        font.setBold(True)
-        font.setWeight(75)
-        self.energy_label.setFont(font)
-        self.energy_label.setObjectName("energy_label")
-        self.dance_score = QtWidgets.QLabel(self.stats)
-        self.dance_score.setGeometry(QtCore.QRect(80, 50, 31, 21))
-        font = QtGui.QFont()
-        font.setPointSize(11)
-        font.setBold(True)
-        font.setWeight(75)
-        self.dance_score.setFont(font)
-        self.dance_score.setObjectName("dance_score")
-        self.valence_score = QtWidgets.QLabel(self.stats)
-        self.valence_score.setGeometry(QtCore.QRect(80, 30, 31, 21))
-        font = QtGui.QFont()
-        font.setPointSize(11)
-        font.setBold(True)
-        font.setWeight(75)
-        self.valence_score.setFont(font)
-        self.valence_score.setObjectName("valence_score")
-        self.energy_score = QtWidgets.QLabel(self.stats)
-        self.energy_score.setGeometry(QtCore.QRect(80, 10, 31, 21))
-        font = QtGui.QFont()
-        font.setPointSize(11)
-        font.setBold(True)
-        font.setWeight(75)
-        self.energy_score.setFont(font)
-        self.energy_score.setObjectName("energy_score")
-        self.info.addTab(self.stats, "")
-        self.jam = QtWidgets.QWidget()
-        self.jam.setObjectName("jam")
-        self.info.addTab(self.jam, "")
-        ####
-        MainWindow.setCentralWidget(self.centralwidget)
-        self.menubar = QtWidgets.QMenuBar(MainWindow)
-        self.menubar.setGeometry(QtCore.QRect(0, 0, 800, 21))
-        self.menubar.setObjectName("menubar")
-        self.menuTest = QtWidgets.QMenu(self.menubar)
-        self.menuTest.setObjectName("menuTest")
-        MainWindow.setMenuBar(self.menubar)
-        self.statusbar = QtWidgets.QStatusBar(MainWindow)
-        self.statusbar.setObjectName("statusbar")
-        MainWindow.setStatusBar(self.statusbar)
-        self.actionTest = QtWidgets.QAction(MainWindow)
-        self.actionTest.setObjectName("actionTest")
-        self.menuTest.addAction(self.actionTest)
-        self.menubar.addAction(self.menuTest.menuAction())
-        self.retranslateUi(MainWindow)
-        QtCore.QMetaObject.connectSlotsByName(MainWindow)
-        self.updateLyrics()
+    def element_cover_image(self, parent):
+        cover = QtWidgets.QLabel(self)
+        cover.setGeometry(QtCore.QRect(10, 10, 331, 331))
+        cover.setScaledContents(True)
+        return cover
 
-    def retranslateUi(self, MainWindow):
-        _translate = QtCore.QCoreApplication.translate  # TODO: what is this for if changing text works without _translate?
-        MainWindow.setWindowTitle(_translate("MainWindow", "MainWindow"))
-        self.title.setText(_translate("MainWindow", "Title"))
-        self.artist.setText(_translate("MainWindow", "Artist"))
-        self.lyrics.setText(_translate("MainWindow", "lyrics not found"))
-        self.update.setText(_translate("MainWindow", "Update"))
-        self.karaoke.setText(_translate("MainWindow", "Karaoke"))
-        self.dance_label.setText(_translate("MainWindow", "Dance:"))
-        self.valence_label.setText(_translate("MainWindow", "Valence:"))
-        self.energy_label.setText(_translate("MainWindow", "Energy:"))
-        self.dance_score.setText(_translate("MainWindow", "8.3"))
-        self.valence_score.setText(_translate("MainWindow", "8.3"))
-        self.energy_score.setText(_translate("MainWindow", "8.3"))
-        self.info.setTabText(self.info.indexOf(self.stats), _translate("MainWindow", "Tab 1"))
-        self.info.setTabText(self.info.indexOf(self.jam), _translate("MainWindow", "Tab 2"))
-        self.menuTest.setTitle(_translate("MainWindow", "Test"))
-        self.actionTest.setText(_translate("MainWindow", "Test"))
+    def element_labels(self, parent, name="Info", attributes=INFO_LABELS, position=10):
+        # Info window
+        element = QtWidgets.QTabWidget(parent)
+        element.setGeometry(QtCore.QRect(position, 350, 165, 181))
+        tab = QtWidgets.QWidget()
+        labels, values = {}, {}
+        offset = 0
+        for attribute in attributes:
+            # Label
+            label = QtWidgets.QLabel(tab)
+            label.setGeometry(QtCore.QRect(10, 10 + offset * 20, 100, 21))
+            label.setFont(self.set_font(11))
+            label.setText(attributes[attribute])
+            labels[attribute] = label
+            # Value
+            value = QtWidgets.QLabel(tab)
+            value.setGeometry(QtCore.QRect(120, 10 + offset * 20, 40, 21))
+            value.setFont(self.set_font(11))
+            values[attribute] = value
+            offset += 1  # move to next line
+        element.addTab(tab, name)
+        return element, labels, values
 
-    def karaoke_mode(self):
-        if self.mode:
-            self.mode = False
-            self.win.showNormal()
-            self.lyrics_size(11)
-            self.scrollArea.setGeometry(QtCore.QRect(350, 70, 1200, 900))
-            self.karaoke.setText("Karaoke")
-        else:
-            self.mode = True        # TODO: add auto scroll to karaoke mode
-            self.win.showMaximized()
-            self.lyrics_size(25)
-            self.scrollArea.setGeometry(QtCore.QRect(350, 70, 1200, 900))
-            self.karaoke.setText("Normal")
+    def update_lyrics(self, force_update=False):
+        """
+        Refreshes the window to display information about the currently playing track.
 
-    def lyrics_size(self, size):
-        new_font = self.lyrics.font()
-        new_font.setPointSize(size)
-        self.lyrics.setFont(new_font)
+        Playback can either be returned through Spotify API or reading the title of the main Spotify window.
+        In case of the API, additional image and information are shown.
 
-    def updateLyrics(self):
-        # TODO: How to get all the data here?
+        Automatically checks every given interval if the song has changed.
+        Parameter 'force_update' overrides that check and is by the 'update' button.
+        """
+
+        song, is_api_connected = lyrics.get_playback()
+
+        # Pressing the 'update' button always reloads a song, even if it's loaded already
+        if not force_update:
+            # Update lyrics every interval specified as UPDATE_TIME
+            Timer(UPDATE_TIME, self.update_lyrics).start()
+            # Check if the currently playing song is already loaded
+            if song == self.currently_loaded:
+                return None
+
+        # If the song has changed, remember it
         print("Update Called")
-        lyr = info.get_lyrics()
-        _translate = QtCore.QCoreApplication.translate
-        self.cover.setPixmap(QtGui.QPixmap(img_dir)) # change the image
-        self.title.setText(_translate("MainWindow",cur['name'])) # change title and artist
-        self.artist.setText(_translate("MainWindow",cur['artists'][0]['name']))
-        self.lyrics.setText(_translate("MainWindow",lyr))
-        energy = f"<html><head/><body><p><span style=\" color:{info.valToColor(features[0]['energy'])};\">{info.valToScore(features[0]['energy'])}</span></p></body></html>"
-        dance = f"<html><head/><body><p><span style=\" color:{info.valToColor(features[0]['danceability'])};\">{info.valToScore(features[0]['danceability'])}</span></p></body></html>"
-        valence = f"<html><head/><body><p><span style=\" color:{info.valToColor(features[0]['valence'])};\">{info.valToScore(features[0]['valence'])}</span></p></body></html>"
-        self.dance_score.setText(_translate("MainWindow", dance))
-        self.valence_score.setText(_translate("MainWindow", valence))
-        self.energy_score.setText(_translate("MainWindow", energy))
-        #self.lyrics.setText(_translate("MainWindow", f"<html><head/><body><p><span style=\" color:#ffffff;\">{lyr}</span></p></body></html>"))
+        self.currently_loaded = song
+
+        # Load track features and track image from Spotify API
+        if song and is_api_connected:
+            lyrics.download_cover(song)
+            features = lyrics.get_features(song)
+            lyrics_text = lyrics.get_lyrics(song)
+
+            self.toggle_details(True)  # Make sure everything is enabled
+            self.cover.setPixmap(QtGui.QPixmap(IMG_DIR))  # Change the image
+            self.set_song(song, lyrics_text)  # Change text
+            self.set_labels(features)
+
+        # If the API isn't working, show just the title, artist and lyrics
+        elif song and not is_api_connected:
+            lyrics_text = lyrics.get_lyrics(song)
+            self.toggle_details(False)
+            self.set_song(song, lyrics_text)
+
+        # If no song was found, hide everything
+        else:
+            self.toggle_details(False)
+            self.title.setText('')  # change title and artist
+            self.artist.setText('')
+            self.lyrics.setText('Nothing playing')
+            for label in INFO_LABELS:
+                self.values[label].setText("")
+
+    def set_song(self, song, lyrics_text):
+        """ Sets name, artists and lyrics of current song """
+        self.title.setText(song['name'])  # change title and artist
+        self.artist.setText(parse_artists(song['artists']))
+        self.lyrics.setText(lyrics_text)
+
+    def set_labels(self, features):
+        # Set values in info
+        for label in INFO_LABELS:
+            value = features[label]
+            color = color_from_value(value)
+            score = format_value(value)
+            content = f"<html><head/><body><p><span style=\" color:{color};\">{score}%</span></p></body></html>"
+            self.values[label].setText(content)
+        # Set values in composition
+        for label in JAM_LABELS:
+            value = format_composition(label, features)
+            self.jam_values[label].setText(value)
+
+    def toggle_details(self, toggle):
+        """ Hides or shows all elements that need Spotify API to load """
+        self.info.setEnabled(toggle)
+        self.jam.setEnabled(toggle)
+        self.cover.setEnabled(toggle)
