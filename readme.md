@@ -1,3 +1,4 @@
+# Spotify Lyrics
 Displays lyrics and information about the currently playing Spotify track.
 
 Uses Genius.com and Spotify API, requires API keys for both of these to work *but* displays some cool metadata like the track's key and BPM in return.
