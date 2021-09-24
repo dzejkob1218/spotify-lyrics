@@ -4,7 +4,16 @@ Uses Genius.com and Spotify API, requires API keys for both of these to work *bu
 
 Obtaining the keys (explained below) takes some extra work, but produces much more accurate and consistent results than scraping the web for information.
 
+Additionaly, all downloaded lyrics are saved to an sqlite database to speed the process up when the song comes back on at a later time.
+
 ![Screenshot](screenshot.png)
+
+# Usage
+Running spotify-lyrics/main.py will display a window which refreshes every 5 seconds (can be changed by editing interface.py) or when '*Update*' button is pressed.
+
+A .db file with all downloaded lyrics will be created in the directory. 
+
+The cover art of the latest song will also be downloaded into the directory.
 
 # How to make this work
 (trust me it's worth it)
