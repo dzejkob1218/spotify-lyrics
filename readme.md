@@ -35,11 +35,11 @@ Copy these into the .env file just like the Spotify keys.
 If you've done everything correctly and your environment fulfills the requirements, the app is good to go!
 
 ### Requirements
-+charset-normalizer==2.0.6
-+fuzzywuzzy==0.18.0
-+lyricsgenius==3.0.1
-+PyQt6==6.1.1
-+PyQt6-Qt6==6.1.3
-+PyQt6-sip==13.1.0
-+python-dotenv==0.19.0
-+spotipy==2.19.0
++ charset-normalizer==2.0.6
++ fuzzywuzzy==0.18.0
++ lyricsgenius==3.0.1
++ PyQt6==6.1.1
++ PyQt6-Qt6==6.1.3
++ PyQt6-sip==13.1.0
++ python-dotenv==0.19.0
++ spotipy==2.19.0
