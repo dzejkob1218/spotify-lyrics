@@ -1,4 +1,4 @@
-Displays lyrics and information about currently playing song on Spotify in a window.
+Displays lyrics and information about the currently playing Spotify track.
 
 Uses Genius.com and Spotify API, requires API keys for both of these to work *but* displays some cool metadata like the track's key and BPM in return.
 Obtaining the keys (explained below) takes some extra work, but produces much more accurate and consistent results than scraping the web for information.
