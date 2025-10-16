@@ -1,7 +1,8 @@
-from PyQt6.QtWidgets import QMainWindow
+from PyQt5.QtWidgets import QMainWindow
 from threading import Timer
 from helpers import *
-from PyQt6 import QtCore, QtGui, QtWidgets, Qt
+from PyQt5 import QtCore, QtGui, QtWidgets, Qt
+from PyQt5.QtGui import QDesktopServices
 
 import spotipy
 import sys
@@ -9,9 +10,10 @@ import lyrics
 import lyricsgenius
 import random
 import time
+import vote
+from config import PROCESSING_ID, FAV_ID, STAR_ID, LEGACY_ID
 
 sp = None
-UPDATE_TIME = 5
 IMG_DIR = 'cover.jpg'  # gets the directory of the cover
 INFO_LABELS = {
     'energy': 'Energy',
@@ -31,8 +33,10 @@ JAM_LABELS = {
 
 
 class UiMainWindow(QMainWindow):
-    def __init__(self):
+    def __init__(self, sp):
         super().__init__()
+
+        self.sp = sp
 
         # Remembers a song after loading to prevent searching for the same lyrics many times
         self.currently_loaded = None
@@ -58,11 +62,26 @@ class UiMainWindow(QMainWindow):
         self.artist.setGeometry(QtCore.QRect(350, 42, 441, 31))
         self.artist.setFont(self.set_font(14, 75))
 
-        # lyrics space
-        self.lyrics = self.element_lyrics_area(self)
+        # voting space
+        self.voting = self.element_voting_area(self)
+
+        # Playlist names display
+        self.playlist_labels = self.create_playlist_labels()
+        self.load_playlist_names()
 
         # Update button
-        self.element_update_button(self)
+        self.element_button(self, (750, 45, 100, 24), "Update", function=lambda: self.update_lyrics(force_update=True))
+
+        # Voting buttons - evenly spaced
+        button_width = 100
+        button_height = 30
+        spacing = 20
+        start_x = 50
+
+        self.element_button(self.voting, (start_x, 200, button_width, button_height), "Fav ↑", function=lambda: self.handle_vote('fav'))
+        self.element_button(self.voting, (start_x + button_width + spacing, 200, button_width, button_height), "Keep →", function=lambda: self.handle_vote('keep'))
+        self.element_button(self.voting, (start_x + (button_width + spacing) * 2, 200, button_width, button_height), "Delete ↓", function=lambda: self.handle_vote('delete'))
+        self.element_button(self.voting, (start_x + (button_width + spacing) * 3, 200, button_width, button_height), "Skip ←", function=lambda: self.handle_vote('skip'))
 
         # Info tab
         self.info, self.labels, self.values = self.element_labels(self, "Info", attributes=INFO_LABELS, position=10)
@@ -70,6 +89,99 @@ class UiMainWindow(QMainWindow):
         self.jam, self.jam_labels, self.jam_values = self.element_labels(self, "Composition", attributes=JAM_LABELS,
                                                                          position=180)
         self.update_lyrics()
+
+    def keyPressEvent(self, event):
+        """Handle keyboard shortcuts for voting"""
+        key = event.key()
+        if key == QtCore.Qt.Key.Key_Up:
+            self.handle_vote('fav')
+        elif key == QtCore.Qt.Key.Key_Right:
+            self.handle_vote('keep')
+        elif key == QtCore.Qt.Key.Key_Down:
+            self.handle_vote('delete')
+        elif key == QtCore.Qt.Key.Key_Left:
+            self.handle_vote('skip')
+
+    def handle_vote(self, action):
+        """Handle voting actions by passing current track URI to vote functions"""
+        if not self.currently_loaded:
+            print("ERROR: No track loaded")
+            return
+
+        track_uri = self.currently_loaded.get('uri')
+        if action == 'fav':
+            vote.fav(self.sp, track_uri)
+        elif action == 'keep':
+            vote.keep(self.sp, track_uri)
+        elif action == 'delete':
+            vote.delete(self.sp, track_uri)
+        elif action == 'skip':
+            vote.skip(self.sp, track_uri)
+
+    def create_playlist_labels(self):
+        """Create labels to display playlist names"""
+        labels = {}
+        y_position = 20
+        line_height = 25
+
+        # Processing playlist
+        processing_label = QtWidgets.QLabel(self.voting)
+        processing_label.setGeometry(QtCore.QRect(20, y_position, 460, 20))
+        processing_label.setFont(self.set_font(10, 50))
+        labels['processing'] = processing_label
+
+        # Favorites playlist
+        fav_label = QtWidgets.QLabel(self.voting)
+        fav_label.setGeometry(QtCore.QRect(20, y_position + line_height, 460, 20))
+        fav_label.setFont(self.set_font(10, 50))
+        labels['fav'] = fav_label
+
+        # Star playlist
+        star_label = QtWidgets.QLabel(self.voting)
+        star_label.setGeometry(QtCore.QRect(20, y_position + line_height * 2, 460, 20))
+        star_label.setFont(self.set_font(10, 50))
+        labels['star'] = star_label
+
+        # Legacy playlist
+        legacy_label = QtWidgets.QLabel(self.voting)
+        legacy_label.setGeometry(QtCore.QRect(20, y_position + line_height * 3, 460, 20))
+        legacy_label.setFont(self.set_font(10, 50))
+        labels['legacy'] = legacy_label
+
+        return labels
+
+    def load_playlist_names(self):
+        """Fetch and display playlist names from Spotify"""
+        try:
+            if PROCESSING_ID:
+                playlist = self.sp.playlist(PROCESSING_ID, fields='name')
+                self.playlist_labels['processing'].setText(f"Processing: {playlist['name']}")
+            else:
+                self.playlist_labels['processing'].setText("Processing: Not set")
+
+            if FAV_ID:
+                playlist = self.sp.playlist(FAV_ID, fields='name')
+                self.playlist_labels['fav'].setText(f"Favorites: {playlist['name']}")
+            else:
+                self.playlist_labels['fav'].setText("Favorites: Not set")
+
+            if STAR_ID:
+                playlist = self.sp.playlist(STAR_ID, fields='name')
+                self.playlist_labels['star'].setText(f"Star: {playlist['name']}")
+            else:
+                self.playlist_labels['star'].setText("Star: Not set")
+
+            if LEGACY_ID:
+                playlist = self.sp.playlist(LEGACY_ID, fields='name')
+                self.playlist_labels['legacy'].setText(f"Legacy: {playlist['name']}")
+            else:
+                self.playlist_labels['legacy'].setText("Legacy: Not set")
+        except Exception as e:
+            print(f"Error loading playlist names: {e}")
+            self.playlist_labels['processing'].setText("Processing: Error loading")
+            self.playlist_labels['fav'].setText("Favorites: Error loading")
+            self.playlist_labels['star'].setText("Star: Error loading")
+            self.playlist_labels['legacy'].setText("Legacy: Error loading")
 
     def set_font(self, size=11, weight=50):
         """ Returns bold font to use in some of the elements """
@@ -79,33 +191,28 @@ class UiMainWindow(QMainWindow):
         font.setWeight(weight)
         return font
 
-    def element_lyrics_area(self, parent):
-        scroll_area = QtWidgets.QScrollArea(parent)
+    def element_voting_area(self, parent):
+        scroll_area = QtWidgets.QTabWidget(parent)
         scroll_area.setGeometry(QtCore.QRect(350, 75, 500, 599))
-        scroll_area.setWidgetResizable(True)
-        scroll_area_content = QtWidgets.QWidget()
-        scroll_area_content.setGeometry(QtCore.QRect(0, 0, 459, 599))
-        vertical_layout = QtWidgets.QVBoxLayout(scroll_area_content)
-        lyrics_text = self.element_lyrics(scroll_area_content)
-        lyrics_text.setAlignment(QtCore.Qt.AlignmentFlag.AlignTop)
-        vertical_layout.addWidget(lyrics_text)
-        scroll_area.setWidget(scroll_area_content)
-        return lyrics_text
+        #scroll_area.setWidgetResizable(True)
+        #croll_area_content = QtWidgets.QWidget()
+        #scroll_area_content.setGeometry(QtCore.QRect(0, 0, 459, 599))
+        #vertical_layout = QtWidgets.QVBoxLayout(scroll_area_content)
+        #lyrics_text = self.element_lyrics(scroll_area_content)
+        #lyrics_text.setAlignment(QtCore.Qt.AlignmentFlag.AlignTop)
+        #vertical_layout.addWidget(lyrics_text)
+        #scroll_area.setWidget(scroll_area_content)
+        #return lyrics_text
+        return scroll_area
 
-    def element_lyrics(self, parent):
-        lyrics_text = QtWidgets.QLabel(parent)
-        font = QtGui.QFont()
-        lyrics_text.setFont(self.set_font())
-        return lyrics_text
 
-    def element_update_button(self, parent):
+    def element_button(self, parent, position, label, function):
         button = QtWidgets.QPushButton(parent)
-        button.setGeometry(QtCore.QRect(750, 45, 100, 24))
-        button.clicked.connect(
-            lambda: self.update_lyrics(force_update=True))  # call the update function when button is clicked
+        button.setGeometry(QtCore.QRect(*position))
+        button.clicked.connect(function)  # call the update function when button is clicked
         button.setFont(self.set_font(11))
         button.setStyleSheet("background-color: rgb(127, 127, 127);")
-        button.setText("Update")
+        button.setText(label)
         return button
 
     def element_cover_image(self, parent):
@@ -150,25 +257,23 @@ class UiMainWindow(QMainWindow):
         Parameter 'force_update' overrides that check and is by the 'update' button.
         """
         # TODO: When updating after there was no playback the app crashes
-        song = lyrics.get_playback()
-        # Pressing the 'update' button always reloads a song, even if it's loaded already
-        if not force_update:
-            # Update lyrics every interval specified as UPDATE_TIME
-            Timer(UPDATE_TIME, self.update_lyrics).start()
-            # Check if the currently playing song is already loaded
-            if song and song == self.currently_loaded:
-                return None
+        song = lyrics.get_playback(self.sp)
 
         # If the song has changed, remember it
         print("Update Called")
         self.currently_loaded = song
         if song:
             lyrics.download_cover(song)
-            features = lyrics.get_features(song)
+            features = lyrics.get_features(song, self.sp)
             lyrics_text = lyrics.get_lyrics(song)
 
             self.toggle_details(True)  # Make sure everything is enabled
             self.cover.setPixmap(QtGui.QPixmap(IMG_DIR))  # Change the image
+
+            def open_image(event):
+                QDesktopServices.openUrl(QtCore.QUrl.fromLocalFile(IMG_DIR))
+
+            self.cover.mousePressEvent = open_image
             self.set_song(song, lyrics_text)  # Change text
             self.set_labels(features)
 
@@ -186,7 +291,6 @@ class UiMainWindow(QMainWindow):
         """ Sets name, artists and lyrics of current song """
         self.title.setText(song['name'])  # change title and artist
         self.artist.setText(parse_artists(song['artists']))
-        self.lyrics.setText(lyrics_text)
 
     def set_labels(self, features):
         # Set values in info

@@ -1,3 +1,5 @@
+import time
+
 from helpers import *
 import lyricsgenius
 from spotipy import Spotify, SpotifyOAuth, util, CacheFileHandler
@@ -13,25 +15,21 @@ load_dotenv()
 
 genius = lyricsgenius.Genius(os.environ.get("GENIUS_SECRET"))
 
-cache_handler = CacheFileHandler(cache_path="")
-auth_manager = SpotifyOAuth(scope='user-read-playback-state', cache_handler=cache_handler)
-spotify = Spotify(auth_manager=auth_manager)
 
 
-def get_features(song):
+def get_features(song, sp):
     """Fetches audio features from Spotify Api"""
-    return spotify.audio_features(song['uri'])[0]
+    return sp.audio_features(song['uri'])[0]
 
 
-def get_playback():
+def get_playback(sp):
     """Returns currently playing song from Spotify api and True if connection to Spotify API worked"""
     # Query spotify API
-    api_playback = spotify.current_playback()
+    api_playback = sp.current_playback()
     try:
         return api_playback['item']
     except:
         return None
-
 
 def get_lyrics(song):
     """Look for the lyrics either in the database or on genius.com"""
@@ -46,7 +44,7 @@ def get_lyrics(song):
         print("Getting lyrics from database")
         return db_result
 
-    genius_result = search_genius(song)
+    genius_result = None #search_genius(song)
     if genius_result:
         print("Lyrics found on Genius - adding to database")
         addLyrics(song['uri'], song['name'], parse_artists(song['artists']), genius_result)
